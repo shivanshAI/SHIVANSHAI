@@ -29,7 +29,6 @@
   .logo-name { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 20px; letter-spacing: -0.5px; background: linear-gradient(135deg, #c4bfff 0%, #ffffff 50%, #ffb3d9 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
   .logo-sub { font-size: 9px; letter-spacing: 0.25em; color: var(--muted); text-transform: uppercase; }
   .header-right { display: flex; align-items: center; gap: 16px; }
-  .model-badge { font-size: 10px; color: var(--accent); border: 1px solid rgba(123,111,255,0.3); padding: 4px 10px; border-radius: 100px; letter-spacing: 0.05em; }
   .status-dot { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
   .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
@@ -57,6 +56,12 @@
   .message.user .bubble { background: var(--user-bg); border-color: rgba(120,110,255,0.25); border-radius: 16px 4px 16px 16px; color: #d0ceff; }
   .message.ai .bubble { background: var(--ai-bg); border-color: var(--border); border-radius: 4px 16px 16px 16px; color: var(--text); width: 100%; }
   .message.error .bubble { border-color: rgba(255,80,80,0.3); background: rgba(255,50,50,0.05); color: #ff9999; font-size: 12px; }
+
+  /* Rate limit error styling */
+  .rate-limit-msg { display: flex; flex-direction: column; gap: 6px; }
+  .rate-limit-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; color: #ff9999; letter-spacing: 0.03em; }
+  .rate-limit-timer { font-size: 12px; color: #ffb3b3; }
+  .rate-limit-countdown { display: inline-block; font-weight: 700; color: #ff6f6f; min-width: 32px; }
 
   /* Inline code */
   .bubble code:not(.hljs) { background: rgba(123,111,255,0.15); padding: 2px 6px; border-radius: 5px; font-size: 12px; color: #b5aeff; font-family: 'JetBrains Mono', monospace; }
@@ -192,7 +197,21 @@
 <script>
 const GROQ_API_KEY = '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';
 const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = 'llama-3.1-8b-instant';
+
+// ── FIX 3: Model fallback list ────────────────────────────────
+const MODELS = [
+  'llama-3.1-8b-instant',
+  'gemma2-9b-it',
+  'llama3-8b-8192'
+];
+let currentModelIndex = 0;
+
+// ── FIX 2: Reduced max_tokens from 2048 → 1024 ───────────────
+const MAX_TOKENS = 1024;
+
+// ── FIX 4: Keep only last 8 messages to reduce token usage ───
+const MAX_HISTORY = 8;
+
 let conversationHistory = [];
 let isLoading = false;
 
@@ -204,40 +223,134 @@ function sendQuick(text) { document.getElementById('userInput').value = text; se
 function setInput(text) { const i = document.getElementById('userInput'); i.value = text; i.focus(); autoResize(i); }
 function escapeHtml(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-// ── Slash popup ───────────────────────────────────────────────
-const slashPopup = document.getElementById('slashPopup');
-
-function showSlashPopup() { slashPopup.classList.add('visible'); }
-function hideSlashPopup() { slashPopup.classList.remove('visible'); }
-
-function selectSlashCmd(cmd) {
-  const input = document.getElementById('userInput');
-  input.value = cmd;
-  input.focus();
-  autoResize(input);
-  hideSlashPopup();
+// ── FIX 4: Trim history to last N messages ────────────────────
+function getTrimmedHistory() {
+  if (conversationHistory.length <= MAX_HISTORY) return conversationHistory;
+  return conversationHistory.slice(-MAX_HISTORY);
 }
 
+// ── FIX 1 + Custom error: Parse retry time from error message ──
+function parseRetrySeconds(errorMsg) {
+  const match = errorMsg && errorMsg.match(/try again in ([0-9.]+)s/i);
+  return match ? Math.ceil(parseFloat(match[1])) : null;
+}
+
+function showRateLimitError(seconds) {
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
+  const messages = document.getElementById('messages');
+  const d = document.createElement('div');
+  d.className = 'message error';
+  const countdownId = 'countdown_' + Date.now();
+
+  d.innerHTML = `
+    <div class="avatar ai">S</div>
+    <div class="bubble">
+      <div class="rate-limit-msg">
+        <div class="rate-limit-title">⚡ SHIVANSH AI HAS BEEN USED TOO MUCH</div>
+        <div class="rate-limit-timer">PLS TRY AGAIN IN <span class="rate-limit-countdown" id="${countdownId}">${seconds}s</span></div>
+      </div>
+    </div>`;
+  messages.appendChild(d);
+  scrollToBottom();
+
+  // Live countdown
+  if (seconds > 0) {
+    let remaining = seconds;
+    const interval = setInterval(() => {
+      remaining--;
+      const el = document.getElementById(countdownId);
+      if (el) {
+        if (remaining <= 0) {
+          el.textContent = '0s';
+          clearInterval(interval);
+        } else {
+          el.textContent = remaining + 's';
+        }
+      } else {
+        clearInterval(interval);
+      }
+    }, 1000);
+  }
+}
+
+// ── FIX 1: Auto-retry with delay ──────────────────────────────
+async function callGroqWithRetry(messages, attempt) {
+  attempt = attempt || 0;
+  const model = MODELS[currentModelIndex];
+
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
+    body: JSON.stringify({
+      model: model,
+      messages: messages,
+      max_tokens: MAX_TOKENS,   // FIX 2: reduced
+      temperature: 0.2
+    })
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const errorMsg = data?.error?.message || '';
+    const isRateLimit = response.status === 429 || errorMsg.toLowerCase().includes('rate limit');
+
+    if (isRateLimit) {
+      const waitSeconds = parseRetrySeconds(errorMsg);
+
+      // Try next model first before waiting
+      if (currentModelIndex < MODELS.length - 1) {
+        currentModelIndex++;
+        return callGroqWithRetry(messages, attempt);
+      }
+
+      // All models exhausted — show friendly error and wait
+      currentModelIndex = 0; // reset for next time
+      removeTyping();
+      showRateLimitError(waitSeconds || 15);
+
+      // FIX 1: Auto-retry after the wait
+      if (waitSeconds && attempt < 2) {
+        await sleep(waitSeconds * 1000 + 500);
+        showTyping('Retrying');
+        return callGroqWithRetry(messages, attempt + 1);
+      }
+      return null; // gave up
+    }
+
+    // Non-rate-limit error
+    removeTyping();
+    appendMessage('ai', `⚠️ Error: ${errorMsg || 'HTTP ' + response.status}`, true);
+    return null;
+  }
+
+  // Success — reset model index
+  currentModelIndex = 0;
+  return data;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Slash popup ───────────────────────────────────────────────
+const slashPopup = document.getElementById('slashPopup');
+function showSlashPopup() { slashPopup.classList.add('visible'); }
+function hideSlashPopup() { slashPopup.classList.remove('visible'); }
+function selectSlashCmd(cmd) {
+  const input = document.getElementById('userInput');
+  input.value = cmd; input.focus(); autoResize(input); hideSlashPopup();
+}
 function handleKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); return; }
   if (e.key === 'Escape') { hideSlashPopup(); return; }
-  if (e.key === 'Tab' && slashPopup.classList.contains('visible')) {
-    e.preventDefault(); selectSlashCmd('/imagine '); return;
-  }
+  if (e.key === 'Tab' && slashPopup.classList.contains('visible')) { e.preventDefault(); selectSlashCmd('/imagine '); return; }
 }
-
 function handleInput(el) {
   autoResize(el);
   const val = el.value;
-  // Show popup only when user typed exactly "/" or "/i", "/im" etc (start of command, no space yet)
-  if (/^\/[a-z]*$/i.test(val) && val.length <= 8) {
-    showSlashPopup();
-  } else {
-    hideSlashPopup();
-  }
+  if (/^\/[a-z]*$/i.test(val) && val.length <= 8) showSlashPopup();
+  else hideSlashPopup();
 }
-
-// Hide popup when clicking outside
 document.addEventListener('click', (e) => {
   if (!slashPopup.contains(e.target) && e.target.id !== 'userInput') hideSlashPopup();
 });
@@ -245,8 +358,6 @@ document.addEventListener('click', (e) => {
 // ── Copy button ───────────────────────────────────────────────
 const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg> Copy`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied!`;
-
-// Store code strings by ID to avoid attribute encoding issues
 const codeStore = {};
 let codeStoreIndex = 0;
 
@@ -254,17 +365,13 @@ function copyCode(btn, id) {
   const code = codeStore[id];
   if (!code) return;
   const finish = () => {
-    btn.classList.add('copied');
-    btn.innerHTML = CHECK_ICON;
+    btn.classList.add('copied'); btn.innerHTML = CHECK_ICON;
     setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = COPY_ICON; }, 2000);
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(code).then(finish).catch(() => {
-      fallbackCopy(code); finish();
-    });
+    navigator.clipboard.writeText(code).then(finish).catch(() => { fallbackCopy(code); finish(); });
   } else { fallbackCopy(code); finish(); }
 }
-
 function fallbackCopy(text) {
   const ta = document.createElement('textarea');
   ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
@@ -275,7 +382,6 @@ function fallbackCopy(text) {
 
 // ── Markdown renderer ─────────────────────────────────────────
 function formatMessage(raw) {
-  // Extract and protect code blocks first
   const codeBlocks = [];
   let text = raw.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
     const trimmed = code.trim();
@@ -292,42 +398,24 @@ function formatMessage(raw) {
     codeBlocks.push(block);
     return `\x00CODEBLOCK${codeBlocks.length - 1}\x00`;
   });
-
-  // Inline code
   text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-
-  // Bold / italic
   text = text.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-
-  // Headers
   text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
   text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
   text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-
-  // Blockquote
   text = text.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
-
-  // HR
   text = text.replace(/^---+$/gm, '<hr>');
-
-  // Lists
   text = text.replace(/^[ \t]*[-*] (.+)$/gm, '<li>$1</li>');
   text = text.replace(/^[ \t]*\d+\. (.+)$/gm, '<li>$1</li>');
   text = text.replace(/(<li>[\s\S]+?<\/li>)(\n(?!<li>)|$)/g, '<ul>$1</ul>');
-
-  // Line breaks / paragraphs
   text = text.split(/\n{2,}/).map(p => {
-    p = p.trim();
-    if (!p) return '';
+    p = p.trim(); if (!p) return '';
     if (/^<(h[1-3]|ul|ol|blockquote|hr|div)/.test(p) || p.startsWith('\x00CODEBLOCK')) return p;
     return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
   }).join('');
-
-  // Restore code blocks
   text = text.replace(/\x00CODEBLOCK(\d+)\x00/g, (_, i) => codeBlocks[parseInt(i)]);
-
   return text;
 }
 
@@ -353,7 +441,6 @@ function showTyping(label) {
   messages.appendChild(div);
   scrollToBottom();
 }
-
 function removeTyping() { const t = document.getElementById('typing'); if (t) t.remove(); }
 function scrollToBottom() { const a = document.getElementById('chatArea'); a.scrollTop = a.scrollHeight; }
 
@@ -375,7 +462,6 @@ function handleImagine(prompt, retry) {
     const ep = encodeURIComponent(prompt);
     d.innerHTML = `<div class="avatar ai">S</div><div class="bubble"><div class="img-label">🎨 "${prompt}"</div><img src="${url}" onclick="window.open('${url}','_blank')" title="Click to open full size"/><button class="regen-btn" onclick="handleImagine(decodeURIComponent('${ep}'))">🔄 Regenerate</button></div>`;
     messages.appendChild(d);
-    // Tell the AI what was generated so it has context
     conversationHistory.push({ role: 'user', content: `/imagine ${prompt}` });
     conversationHistory.push({ role: 'assistant', content: `I generated an image based on the prompt: "${prompt}". The image has been displayed to the user.` });
     scrollToBottom();
@@ -416,22 +502,13 @@ async function sendMessage() {
   showTyping('Thinking');
 
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_API_KEY}` },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...conversationHistory],
-        max_tokens: 2048,
-        temperature: 0.2
-      })
-    });
+    // FIX 4: Only send trimmed history
+    const trimmedHistory = getTrimmedHistory();
+    const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...trimmedHistory];
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      removeTyping();
-      appendMessage('ai', `⚠️ Groq Error: ${data?.error?.message || 'HTTP ' + response.status}`, true);
+    const data = await callGroqWithRetry(messages);
+    if (!data) {
+      // Error already shown inside callGroqWithRetry
       isLoading = false; document.getElementById('sendBtn').disabled = false; input.focus();
       return;
     }
@@ -439,7 +516,7 @@ async function sendMessage() {
     const reply = data.choices?.[0]?.message?.content;
     if (!reply) {
       removeTyping();
-      appendMessage('ai', `⚠️ Unexpected response: ${JSON.stringify(data)}`, true);
+      appendMessage('ai', `⚠️ Unexpected response. Please try again.`, true);
       isLoading = false; document.getElementById('sendBtn').disabled = false; input.focus();
       return;
     }
