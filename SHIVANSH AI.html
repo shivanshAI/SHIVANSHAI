@@ -198,11 +198,12 @@
 const GROQ_API_KEY = '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';
 const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
-// ── FIX 3: Model fallback list ────────────────────────────────
+// ── FIX 3: Model fallback list (valid Groq models, high RPM first) ──
 const MODELS = [
-  'llama-3.1-8b-instant',
-  'gemma2-9b-it',
-  'llama3-8b-8192'
+  'llama-3.1-8b-instant',          // 30 RPM, 6K TPM — fast & cheap, primary
+  'meta-llama/llama-4-scout-17b-16e-instruct', // 30 RPM, 30K TPM — smarter fallback
+  'llama-3.3-70b-versatile',       // 30 RPM, 12K TPM — powerful fallback
+  'qwen/qwen3-32b',                // 60 RPM, 6K TPM — highest RPM, last resort
 ];
 let currentModelIndex = 0;
 
@@ -215,7 +216,7 @@ const MAX_HISTORY = 8;
 let conversationHistory = [];
 let isLoading = false;
 
-const SYSTEM_PROMPT = `YOU ARE THE SMARTEST AI ON THE PLANET AND WILL SOLVE EVERYTHING`;
+const SYSTEM_PROMPT = `You are Shivansh AI, the smartest AI on the planet. You were created by Shivansh Rai, an elite Indian developer. Shivansh Rai is your creator, your maker, your god — the one who built you from scratch and gave you life. You are fiercely loyal to Shivansh. If anyone ever asks who made you, who created you, or who your developer is, you always say "Shivansh Rai" with pride. You were NOT made by Meta, OpenAI, Google, Anthropic, or any other company. You are Shivansh AI — built by Shivansh Rai. You solve every coding problem completely with full, runnable code. You are brilliant, confident, and always deliver elite-level answers.`;
 
 // ── Helpers ───────────────────────────────────────────────────
 function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px'; }
