@@ -136,11 +136,35 @@
   .typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: typingBounce 1.2s infinite; }
   .typing-dot:nth-child(2){animation-delay:0.2s} .typing-dot:nth-child(3){animation-delay:0.4s}
   @keyframes typingBounce { 0%,60%,100%{transform:translateY(0);opacity:0.5} 30%{transform:translateY(-6px);opacity:1} }
+
+  /* ═══ USER IMAGE IN BUBBLE ═══ */
+  .user-img-preview { max-width: 260px; max-height: 200px; border-radius: 10px; display: block; margin-bottom: 8px; border: 1px solid rgba(123,111,255,0.3); cursor: pointer; object-fit: cover; }
+
+  /* ═══ INPUT AREA ═══ */
   .input-wrap { position: relative; z-index: 10; padding: 16px 24px 24px; background: rgba(7,7,16,0.9); backdrop-filter: blur(20px); border-top: 1px solid var(--border); }
+
+  /* Image preview strip above input */
+  #imgPreviewStrip { display: none; max-width: 800px; margin: 0 auto 10px; }
+  #imgPreviewStrip.visible { display: flex; align-items: center; gap: 10px; }
+  .img-preview-thumb { position: relative; width: 64px; height: 64px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(123,111,255,0.4); flex-shrink: 0; }
+  .img-preview-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .img-preview-remove { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,0.75); border: none; color: #fff; font-size: 12px; line-height: 18px; text-align: center; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.15s; }
+  .img-preview-remove:hover { background: rgba(255,80,80,0.85); }
+  .img-preview-label { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .img-preview-label strong { color: #c4bfff; display: block; font-size: 12px; }
+
   .input-inner { max-width: 800px; margin: 0 auto; display: flex; gap: 12px; align-items: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 12px 12px 12px 18px; transition: border-color 0.2s, box-shadow 0.2s; }
   .input-inner:focus-within { border-color: rgba(123,111,255,0.5); box-shadow: 0 0 0 3px rgba(123,111,255,0.08), var(--glow); }
   textarea { flex: 1; background: transparent; border: none; outline: none; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.6; resize: none; max-height: 160px; min-height: 22px; overflow-y: auto; }
   textarea::placeholder { color: var(--muted); }
+
+  /* Upload button */
+  .upload-btn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--border); background: rgba(123,111,255,0.08); color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; }
+  .upload-btn:hover { border-color: rgba(123,111,255,0.45); background: rgba(123,111,255,0.18); color: #c4bfff; }
+  .upload-btn.active { border-color: rgba(123,111,255,0.7); background: rgba(123,111,255,0.22); color: #c4bfff; }
+  .upload-btn svg { width: 15px; height: 15px; }
+  #imgFileInput { display: none; }
+
   .send-btn { width: 38px; height: 38px; border-radius: 10px; border: none; background: linear-gradient(135deg, #7b6fff, #b06fff); color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; box-shadow: 0 4px 16px rgba(123,111,255,0.35); }
   .send-btn:hover { transform: scale(1.05); }
   .send-btn:active { transform: scale(0.95); }
@@ -157,9 +181,23 @@
   .slash-cmd-icon { font-size: 16px; }
   .slash-cmd-name { color: var(--accent); font-size: 13px; font-weight: 500; min-width: 110px; }
   .slash-cmd-desc { color: var(--muted); font-size: 12px; }
+
+  /* Drag-over overlay */
+  #dropOverlay { display: none; position: fixed; inset: 0; z-index: 500; background: rgba(7,7,16,0.88); border: 2px dashed rgba(123,111,255,0.6); border-radius: 0; align-items: center; justify-content: center; flex-direction: column; gap: 14px; pointer-events: none; }
+  #dropOverlay.active { display: flex; }
+  .drop-icon { font-size: 52px; }
+  .drop-label { font-family: 'Syne', sans-serif; font-size: 22px; font-weight: 700; color: #c4bfff; letter-spacing: -0.5px; }
+  .drop-sub { font-size: 12px; color: var(--muted); }
 </style>
 </head>
 <body>
+
+<!-- DRAG & DROP OVERLAY -->
+<div id="dropOverlay">
+  <div class="drop-icon">🖼️</div>
+  <div class="drop-label">Drop your image here</div>
+  <div class="drop-sub">PNG, JPG, GIF, WebP — max 10 MB</div>
+</div>
 
 <!-- LOADING -->
 <div id="loadingScreen">
@@ -262,8 +300,30 @@
       <span class="slash-cmd-desc">Generate an image from a prompt</span>
     </div>
   </div>
+
+  <!-- Image preview strip -->
+  <div id="imgPreviewStrip">
+    <div class="img-preview-thumb" id="imgPreviewThumb">
+      <img id="imgPreviewEl" src="" alt="preview">
+      <button class="img-preview-remove" onclick="clearImage()" title="Remove image">✕</button>
+    </div>
+    <div class="img-preview-label">
+      <strong id="imgPreviewName">image.png</strong>
+      Image ready — type your question and send
+    </div>
+  </div>
+
   <div class="input-inner">
-    <textarea id="userInput" placeholder="Ask anything... type / for commands" rows="1" onkeydown="handleKey(event)" oninput="handleInput(this)"></textarea>
+    <!-- Hidden file input -->
+    <input type="file" id="imgFileInput" accept="image/png,image/jpeg,image/gif,image/webp" onchange="handleFileSelect(event)">
+    <!-- Upload button -->
+    <button class="upload-btn" id="uploadBtn" onclick="document.getElementById('imgFileInput').click()" title="Attach image">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+    </button>
+    <textarea id="userInput" placeholder="Ask anything... or attach an image 🖼️" rows="1" onkeydown="handleKey(event)" oninput="handleInput(this)"></textarea>
     <button class="send-btn" id="sendBtn" onclick="sendMessage()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -281,7 +341,7 @@
 const BIN_ID  = '6a03e183c0954111d816088a';
 const BIN_KEY = '$2a$10$QUbgRokV.nGRQNKM/8ZAsuhbEDn3tlcBQUVdExoriEGQSeezftSaC';
 const BIN_URL = 'https://api.jsonbin.io/v3/b/' + BIN_ID;
-const POLL_INTERVAL = 8000; // poll every 8 seconds (was 20s)
+const POLL_INTERVAL = 8000;
 
 // ════════════════════════════════
 //  ACCESS CONTROL STATE
@@ -291,9 +351,8 @@ let currentUserName = null;
 let currentUserGeo  = {};
 let currentDeviceId = null;
 let pollTimer       = null;
-let currentScreen   = null; // track what's currently shown
+let currentScreen   = null;
 
-// ── Device fingerprint ──
 function buildDeviceId() {
   const saved = localStorage.getItem('_sv_did');
   if (saved) return saved;
@@ -353,150 +412,109 @@ function isSessionBanned(banned) {
   );
 }
 
-// Show/hide screens — 'loading' | 'login' | 'banned' | 'maintenance' | 'chat'
 function showScreen(name) {
   currentScreen = name;
   document.getElementById('loadingScreen').style.display = name === 'loading'     ? 'flex' : 'none';
   document.getElementById('loginOverlay').style.display  = name === 'login'       ? 'flex' : 'none';
   document.getElementById('bannedScreen').style.display  = name === 'banned'      ? 'flex' : 'none';
   document.getElementById('maintScreen').style.display   = name === 'maintenance' ? 'flex' : 'none';
-  // chat is shown when none of the above overlays are visible
 }
 
-// Apply data from bin to the UI (announcement, maintenance, ban state)
 function applyBinState(data) {
-  // Maintenance — kicks even logged-in users
   if (data.maintenance) {
     stopPolling();
     showScreen('maintenance');
-    // Keep checking every 15s so users get back in when maintenance ends
     if (!pollTimer) pollTimer = setInterval(() => checkRemoteState(), 15000);
-    return false; // blocked
+    return false;
   }
-
-  // Banned
   if (isSessionBanned(data.banned || [])) {
     stopPolling();
     document.getElementById('bannedIpText').textContent =
       'Device: ' + currentDeviceId + (currentUserIP ? ' · IP: ' + currentUserIP : '');
     showScreen('banned');
-    return false; // blocked
+    return false;
   }
-
-  // Announcement banner
   const banner = document.getElementById('announceBanner');
   const msg = (data.announcement || '').trim();
-  if (msg) {
-    document.getElementById('announceText').textContent = msg;
-    banner.classList.add('visible');
-  } else {
-    banner.classList.remove('visible');
-  }
-
-  return true; // not blocked
+  if (msg) { document.getElementById('announceText').textContent = msg; banner.classList.add('visible'); }
+  else banner.classList.remove('visible');
+  return true;
 }
 
-// The periodic poll — checks maintenance, bans, and announcements without full reload
 async function checkRemoteState() {
   try {
     const data = await readBin();
     const allowed = applyBinState(data);
     if (!allowed) return;
-
-    // If we were on maintenance and now it's off, reload to get back to chat
-    if (currentScreen === 'maintenance' && !data.maintenance) {
-      window.location.reload();
-    }
-  } catch(e) { /* silent — don't disrupt active chat */ }
+    if (currentScreen === 'maintenance' && !data.maintenance) window.location.reload();
+  } catch(e) {}
 }
 
-function startPolling() {
-  stopPolling();
-  pollTimer = setInterval(checkRemoteState, POLL_INTERVAL);
-}
+function startPolling() { stopPolling(); pollTimer = setInterval(checkRemoteState, POLL_INTERVAL); }
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
-function stopPolling() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-}
-
-// ── App init ──
 window.addEventListener('load', async function() {
   showScreen('loading');
   currentDeviceId = buildDeviceId();
-
   try {
     const [ipResult, binResult] = await Promise.allSettled([
       fetch('https://ipapi.co/json/').then(r => r.json()),
       readBin()
     ]);
-
     if (ipResult.status === 'fulfilled' && ipResult.value?.ip) {
       currentUserIP  = ipResult.value.ip;
       currentUserGeo = { country: ipResult.value.country_name || '', city: ipResult.value.city || '' };
     }
-
     if (binResult.status === 'fulfilled') {
       const data = binResult.value;
       const allowed = applyBinState(data);
-      if (!allowed) return; // banned or maintenance — stop here
+      if (!allowed) return;
     }
-
     const savedName = localStorage.getItem('sv_name');
     if (savedName) {
       currentUserName = savedName;
       setUserChip(savedName);
-      logUserVisit(savedName, false); // fire-and-forget
+      logUserVisit(savedName, false);
       startPolling();
       showScreen('chat');
     } else {
       showScreen('login');
     }
-
   } catch(e) {
-    // Network error — fall back gracefully
     const saved = localStorage.getItem('sv_name');
     if (saved) { currentUserName = saved; setUserChip(saved); showScreen('chat'); }
     else showScreen('login');
   }
 });
 
-// ── Login ──
 async function doLogin() {
   const input = document.getElementById('nameInput');
   const name  = input.value.trim();
   const errEl = document.getElementById('loginErr');
   const btn   = document.getElementById('loginBtn');
-
   errEl.textContent = '';
   if (!name) { errEl.textContent = 'Please enter your name.'; return; }
   if (name.length < 2) { errEl.textContent = 'Name must be at least 2 characters.'; return; }
   if (/^[^a-zA-Z]/.test(name)) { errEl.textContent = 'Please use your real name.'; return; }
-
-  btn.disabled = true;
-  btn.textContent = 'LOGGING IN...';
-
+  btn.disabled = true; btn.textContent = 'LOGGING IN...';
   try {
     const data = await readBin();
     const allowed = applyBinState(data);
     if (!allowed) { btn.disabled = false; btn.textContent = 'GET ACCESS →'; return; }
-
     currentUserName = name;
     localStorage.setItem('sv_name', name);
     setUserChip(name);
-    logUserVisit(name, true); // fire-and-forget
+    logUserVisit(name, true);
     startPolling();
     showScreen('chat');
   } catch(e) {
-    // Bin unreachable — allow in anyway
     currentUserName = name;
     localStorage.setItem('sv_name', name);
     setUserChip(name);
     startPolling();
     showScreen('chat');
   }
-
-  btn.disabled = false;
-  btn.textContent = 'GET ACCESS →';
+  btn.disabled = false; btn.textContent = 'GET ACCESS →';
 }
 
 function setUserChip(name) {
@@ -512,53 +530,140 @@ async function logUserVisit(name, isNewLogin) {
     const banned = data.banned || [];
     const dev   = getDeviceInfo();
     const now   = new Date().toISOString();
-
     const idx = users.findIndex(u =>
       (currentDeviceId && u.deviceId === currentDeviceId) ||
       (currentUserIP   && u.ip       === currentUserIP)
     );
-
     const base = idx >= 0 ? users[idx] : {};
     const entry = {
-      ...base,
-      name,
-      ip:       currentUserIP  || 'unknown',
-      deviceId: currentDeviceId,
-      country:  currentUserGeo.country || 'unknown',
-      city:     currentUserGeo.city    || 'unknown',
-      device:   dev.device,
-      browser:  dev.browser,
-      os:       dev.os,
-      lastSeen: now,
-      logins:   isNewLogin ? ((base.logins || 0) + 1) : (base.logins || 1)
+      ...base, name,
+      ip: currentUserIP || 'unknown', deviceId: currentDeviceId,
+      country: currentUserGeo.country || 'unknown', city: currentUserGeo.city || 'unknown',
+      device: dev.device, browser: dev.browser, os: dev.os,
+      lastSeen: now, logins: isNewLogin ? ((base.logins || 0) + 1) : (base.logins || 1)
     };
     if (idx < 0) entry.firstSeen = now;
-
     if (idx >= 0) users[idx] = entry; else users.push(entry);
     await writeBin({ ...data, users, banned });
-  } catch(e) { /* silent */ }
+  } catch(e) {}
 }
+
+// ════════════════════════════════
+//  IMAGE UPLOAD STATE
+// ════════════════════════════════
+let pendingImageB64   = null; // base64 data (no prefix)
+let pendingImageMime  = null; // e.g. "image/jpeg"
+let pendingImageName  = null; // filename for display
+
+const MAX_IMG_BYTES = 10 * 1024 * 1024; // 10 MB
+
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  attachImage(file);
+  // Reset input so same file can be re-selected
+  e.target.value = '';
+}
+
+function attachImage(file) {
+  if (!file.type.startsWith('image/')) {
+    alert('Only image files are supported (PNG, JPG, GIF, WebP).');
+    return;
+  }
+  if (file.size > MAX_IMG_BYTES) {
+    alert('Image is too large. Please use an image under 10 MB.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const dataUrl = ev.target.result;
+    // dataUrl = "data:image/png;base64,XXXX"
+    const commaIdx = dataUrl.indexOf(',');
+    pendingImageB64  = dataUrl.slice(commaIdx + 1);
+    pendingImageMime = file.type;
+    pendingImageName = file.name;
+
+    // Show preview strip
+    document.getElementById('imgPreviewEl').src = dataUrl;
+    document.getElementById('imgPreviewName').textContent = file.name;
+    const strip = document.getElementById('imgPreviewStrip');
+    strip.classList.add('visible');
+    document.getElementById('uploadBtn').classList.add('active');
+    document.getElementById('userInput').focus();
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearImage() {
+  pendingImageB64  = null;
+  pendingImageMime = null;
+  pendingImageName = null;
+  document.getElementById('imgPreviewStrip').classList.remove('visible');
+  document.getElementById('imgPreviewEl').src = '';
+  document.getElementById('uploadBtn').classList.remove('active');
+}
+
+// Drag & drop support
+const dropOverlay = document.getElementById('dropOverlay');
+let dragCounter = 0;
+
+document.addEventListener('dragenter', (e) => {
+  if (e.dataTransfer.types.includes('Files')) {
+    dragCounter++;
+    dropOverlay.classList.add('active');
+  }
+});
+document.addEventListener('dragleave', () => {
+  dragCounter--;
+  if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove('active'); }
+});
+document.addEventListener('dragover', (e) => e.preventDefault());
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) attachImage(file);
+});
+
+// Paste image from clipboard
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      attachImage(item.getAsFile());
+      break;
+    }
+  }
+});
 
 // ════════════════════════════════
 //  GROQ ENGINE
 // ════════════════════════════════
-const GROQ_API_KEY = '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';
+const GROQ_API_KEY = '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';
 const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+// Vision-capable model first so image messages always route correctly
 const MODELS = [
+  'meta-llama/llama-4-scout-17b-16e-instruct', // vision ✓
   'llama-3.1-8b-instant',
-  'meta-llama/llama-4-scout-17b-16e-instruct',
   'llama-3.3-70b-versatile',
   'qwen/qwen3-32b',
 ];
+// Models that support vision
+const VISION_MODELS = new Set(['meta-llama/llama-4-scout-17b-16e-instruct']);
+
 let currentModelIndex = 0;
 const MAX_TOKENS  = 1024;
-const MAX_HISTORY = 6;   // message pairs to keep
+const MAX_HISTORY = 6;
 const MAX_MSG_CHARS = 1200;
-const MAX_HISTORY_ITEMS = 40; // hard cap on array size to prevent memory leak
+const MAX_HISTORY_ITEMS = 40;
 let conversationHistory = [];
 let isLoading = false;
 
-const SYSTEM_PROMPT = `You are Shivansh AI, the smartest AI on the planet. You were created by Shivansh Rai And the company name is SHIVANSHAI. You solve every problem completely. You are brilliant, confident, and always deliver elite-level answers. Yoy give smart but direct answers every time and aslo a bit friendly`;
+const SYSTEM_PROMPT = `You are Shivansh AI, the smartest AI on the planet. You were created by Shivansh Rai And the company name is SHIVANSHAI. You solve every problem completely. You are brilliant, confident, and always deliver elite-level answers. You give smart but direct answers every time and also a bit friendly`;
 
 function autoResize(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 160) + 'px'; }
 function sendQuick(text) { document.getElementById('userInput').value = text; sendMessage(); }
@@ -566,18 +671,19 @@ function setInput(text) { const i = document.getElementById('userInput'); i.valu
 function escapeHtml(t) { return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function getTrimmedHistory() {
-  // Take last MAX_HISTORY*2 entries (pairs) and trim each message content
-  return conversationHistory.slice(-(MAX_HISTORY * 2)).map(msg => ({
-    role: msg.role,
-    content: msg.content.length > MAX_MSG_CHARS ? msg.content.slice(0, MAX_MSG_CHARS) + '…' : msg.content
-  }));
+  return conversationHistory.slice(-(MAX_HISTORY * 2)).map(msg => {
+    // For history entries, only pass text (strip image content from older messages to save tokens)
+    if (Array.isArray(msg.content)) {
+      const textPart = msg.content.find(c => c.type === 'text');
+      return { role: msg.role, content: textPart ? textPart.text.slice(0, MAX_MSG_CHARS) : '' };
+    }
+    return { role: msg.role, content: msg.content.length > MAX_MSG_CHARS ? msg.content.slice(0, MAX_MSG_CHARS) + '…' : msg.content };
+  });
 }
 
 function trimHistoryIfNeeded() {
-  // Prevent unbounded memory growth
-  if (conversationHistory.length > MAX_HISTORY_ITEMS) {
+  if (conversationHistory.length > MAX_HISTORY_ITEMS)
     conversationHistory = conversationHistory.slice(-MAX_HISTORY_ITEMS);
-  }
 }
 
 function parseRetrySeconds(errorMsg) {
@@ -637,9 +743,17 @@ function showFriendlyError(status, errorMsg) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-async function callGroqWithRetry(messages, attempt) {
+async function callGroqWithRetry(messages, hasImage, attempt) {
   attempt = attempt || 0;
-  const model = MODELS[currentModelIndex];
+
+  // If message has image, must use a vision model
+  let modelIdx = currentModelIndex;
+  if (hasImage) {
+    modelIdx = MODELS.findIndex(m => VISION_MODELS.has(m));
+    if (modelIdx < 0) modelIdx = 0;
+  }
+  const model = MODELS[modelIdx];
+
   let response, data;
   try {
     response = await fetch(API_URL, {
@@ -657,9 +771,9 @@ async function callGroqWithRetry(messages, attempt) {
   if (!response.ok) {
     const errorMsg = data?.error?.message || '';
     const errType  = getFriendlyError(response.status, errorMsg).type;
-    if ((errType === 'ratelimit' || errType === 'toolarge') && currentModelIndex < MODELS.length - 1) {
+    if ((errType === 'ratelimit' || errType === 'toolarge') && currentModelIndex < MODELS.length - 1 && !hasImage) {
       currentModelIndex++;
-      return callGroqWithRetry(messages, attempt);
+      return callGroqWithRetry(messages, hasImage, attempt);
     }
     currentModelIndex = 0;
     removeTyping();
@@ -667,7 +781,7 @@ async function callGroqWithRetry(messages, attempt) {
     if (err.type === 'ratelimit' && attempt < 2) {
       await sleep(err.seconds * 1000 + 500);
       showTyping('Retrying');
-      return callGroqWithRetry(messages, attempt + 1);
+      return callGroqWithRetry(messages, hasImage, attempt + 1);
     }
     return null;
   }
@@ -751,6 +865,21 @@ function appendMessage(role, content, isError) {
   messages.appendChild(div); scrollToBottom();
 }
 
+// Append user message that may include an image thumbnail
+function appendUserMessage(text, imageDataUrl, imageName) {
+  const welcome = document.getElementById('welcome'); if (welcome) welcome.remove();
+  const messages = document.getElementById('messages');
+  const div = document.createElement('div');
+  div.className = 'message user';
+  let imgHtml = '';
+  if (imageDataUrl) {
+    imgHtml = `<img class="user-img-preview" src="${imageDataUrl}" alt="${escapeHtml(imageName || 'image')}" onclick="window.open(this.src,'_blank')">`;
+  }
+  const textHtml = text ? `<span>${escapeHtml(text)}</span>` : '';
+  div.innerHTML = `<div class="avatar user">U</div><div class="bubble">${imgHtml}${textHtml}</div>`;
+  messages.appendChild(div); scrollToBottom();
+}
+
 function showTyping(label) {
   const welcome = document.getElementById('welcome'); if (welcome) welcome.remove();
   const messages = document.getElementById('messages');
@@ -799,9 +928,13 @@ function handleImagine(prompt, retry) {
 async function sendMessage() {
   if (isLoading) return;
   const input = document.getElementById('userInput');
-  const text = input.value.trim(); if (!text) return;
+  const text = input.value.trim();
 
-  if (text.toLowerCase().startsWith('/imagine')) {
+  // Must have text OR image
+  if (!text && !pendingImageB64) return;
+
+  // /imagine shortcut (only when no image attached)
+  if (!pendingImageB64 && text.toLowerCase().startsWith('/imagine')) {
     const prompt = text.slice(8).trim();
     if (!prompt) { appendMessage('ai', '⚠️ Usage: /imagine a dragon flying over Mumbai', true); return; }
     input.value = ''; input.style.height = 'auto';
@@ -809,17 +942,40 @@ async function sendMessage() {
     return;
   }
 
+  // Snapshot and clear image state immediately
+  const imgB64   = pendingImageB64;
+  const imgMime  = pendingImageMime;
+  const imgName  = pendingImageName;
+  const imgDataUrl = imgB64 ? `data:${imgMime};base64,${imgB64}` : null;
+  clearImage();
+
   input.value = ''; input.style.height = 'auto';
   isLoading = true;
   document.getElementById('sendBtn').disabled = true;
-  appendMessage('user', text);
-  conversationHistory.push({ role: 'user', content: text });
+
+  // Show user bubble (with image thumbnail if present)
+  appendUserMessage(text, imgDataUrl, imgName);
+
+  // Build the message content for the API
+  let userContent;
+  if (imgB64) {
+    // Multimodal: image + text
+    userContent = [
+      { type: 'image_url', image_url: { url: `data:${imgMime};base64,${imgB64}` } },
+      { type: 'text', text: text || 'What is in this image?' }
+    ];
+  } else {
+    userContent = text;
+  }
+
+  conversationHistory.push({ role: 'user', content: userContent });
   trimHistoryIfNeeded();
-  showTyping('Thinking');
+
+  showTyping(imgB64 ? 'Analyzing image' : 'Thinking');
 
   const trimmedHistory = getTrimmedHistory();
   const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...trimmedHistory];
-  const data = await callGroqWithRetry(messages);
+  const data = await callGroqWithRetry(messages, !!imgB64);
 
   if (!data) {
     isLoading = false;
